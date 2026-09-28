@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" fill="#06090f"/>
+<path d="M90 330 L190 245 L250 285 L330 165 L422 195" fill="none" stroke="#22c55e" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="422" cy="195" r="24" fill="#22c55e"/>
+<text x="256" y="445" text-anchor="middle" font-family="monospace" font-size="56" font-weight="bold" fill="#dbe4f0" letter-spacing="8">SOFIA</text>
+</svg>

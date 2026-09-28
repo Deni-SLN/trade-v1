@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="96" fill="#06090f"/>
+<rect x="40" y="40" width="432" height="432" rx="64" fill="none" stroke="#22d3ee" stroke-width="14"/>
+<path d="M90 340 L190 250 L250 290 L330 170 L422 200" fill="none" stroke="#22c55e" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M90 340 L190 250 L250 290 L330 170 L422 200 L422 380 L90 380 Z" fill="#22c55e" opacity="0.18"/>
+<circle cx="422" cy="200" r="20" fill="#22c55e"/>
+<text x="256" y="452" text-anchor="middle" font-family="monospace" font-size="52" font-weight="bold" fill="#dbe4f0" letter-spacing="8">SOFIA</text>
+</svg>

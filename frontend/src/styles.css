@@ -51,3 +51,33 @@ td { padding: 6px 8px; border-bottom: 1px solid #121a28; font-family: 'JetBrains
 .live-banner { background: #2a0a0a; border: 1px solid #7f1d1d; color: #fca5a5; padding: 6px 12px; border-radius: 4px; font-weight: 800; letter-spacing: 1.5px; font-size: 11px; }
 .paper-banner { background: #082f3f; border: 1px solid #155e75; color: #67e8f9; padding: 6px 12px; border-radius: 4px; font-weight: 800; letter-spacing: 1.5px; font-size: 11px; }
 @media (max-width: 1200px) { .grid-kpi { grid-template-columns: repeat(4, 1fr); } .app { grid-template-columns: 150px 1fr; } }
+
+/* ---- hamburger + drawer (mobile nav) ---- */
+.hamburger { display: none; background: #101828; border: 1px solid var(--border); color: var(--txt); font-size: 20px; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.drawer-bg { position: fixed; inset: 0; background: #000a; z-index: 60; }
+.drawer { position: fixed; top: 0; left: 0; bottom: 0; width: 240px; background: var(--panel); border-right: 1px solid var(--border); z-index: 61; padding: 14px 10px; overflow-y: auto; }
+.drawer .nav-item { font-size: 14px; padding: 11px 12px; }
+
+/* ---- mobile: HP optimal ---- */
+@media (max-width: 900px) {
+  body { font-size: 14px; }
+  .app { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; height: 100dvh; }
+  header { grid-column: 1; flex-wrap: wrap; gap: 10px; padding: 10px 12px; }
+  .hamburger { display: block; }
+  .brand { font-size: 15px; }
+  aside { display: none; }
+  main { padding: 10px 10px 90px; }
+  .grid-kpi { grid-template-columns: repeat(2, 1fr); }
+  .card .v { font-size: 15px; }
+  .cols2, .cols3 { grid-template-columns: 1fr; }
+  .panel { overflow-x: auto; padding: 10px; }
+  table { min-width: 560px; }
+  td, th { padding: 8px 10px; font-size: 12px; }
+  .nav-item, .btn, .mode-btn, .engine-btn { min-height: 44px; }
+  .btn, .mode-btn { font-size: 13px; }
+  .modal { width: calc(100vw - 24px); padding: 16px; }
+  .status-row { gap: 8px; font-size: 11px; }
+}
+@media (max-width: 900px) and (orientation: landscape) {
+  .grid-kpi { grid-template-columns: repeat(4, 1fr); }
+}

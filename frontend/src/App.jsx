@@ -189,6 +189,7 @@ function usePoll(fn, ms, deps = []) {
 
 export default function App() {
   const [nav, setNav] = useState('Overview');
+  const [drawer, setDrawer] = useState(false);
   const [status, setStatus] = useState(null);
   const [kpi, setKpi] = useState(null);
   const [showLiveGate, setShowLiveGate] = useState(null);
@@ -248,6 +249,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
+        <button className="hamburger" onClick={() => setDrawer(true)} aria-label="Menu">☰</button>
         <div className="brand">SOFIA MEME BOT<small>SOLANA · QUANT TERMINAL · V1.0</small></div>
         <div>
           <button className={`mode-btn paper ${!live ? 'active' : ''}`} onClick={() => askMode('PAPER')}>PAPER TRADE</button>{' '}
@@ -293,6 +295,17 @@ export default function App() {
         {NAV.map(n => <div key={n} className={`nav-item ${nav === n ? 'active' : ''}`} onClick={() => setNav(n)}>{n}</div>)}
         <div className="mono" style={{ fontSize: 10, color: '#5b6b82', padding: 10 }}>ENGINE: {status?.engine}<br />MODE: {status?.mode}<br />RPC: {status?.rpcLatency}ms</div>
       </aside>
+
+      {drawer && (
+        <>
+          <div className="drawer-bg" onClick={() => setDrawer(false)} />
+          <div className="drawer">
+            <div className="mono" style={{ fontSize: 10, letterSpacing: 2, color: '#5b6b82', padding: '4px 12px 10px' }}>SOFIA · NAVIGASI</div>
+            {NAV.map(n => <div key={n} className={`nav-item ${nav === n ? 'active' : ''}`} onClick={() => { setNav(n); setDrawer(false); }}>{n}</div>)}
+            <div className="mono" style={{ fontSize: 11, color: '#5b6b82', padding: 12 }}>ENGINE: {status?.engine}<br />MODE: {status?.mode}</div>
+          </div>
+        </>
+      )}
 
       <main>
         {nav === 'Overview' && <Overview kpi={kpi} status={status} reload={loadStatus} />}
