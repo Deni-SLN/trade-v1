@@ -30,6 +30,15 @@ Open http://localhost:8787 (prod) or http://localhost:5173 (dev).
 
 ## Notes
 
+- Currency: ledger in IDR, display dual — **$ besar + Rp kecil** (kurs real
+  USD/IDR hari ini via open.er-api, cached 12h, tertera tanggal+sumber di
+  header). Toggle $/Rp di header. Token prices native USD. Position sizing
+  dikonversi via kurs sehingga dimensinya benar.
+- Live PnL: header chip + panel Arus Koin + wallet update tiap 5 detik dari
+  quote DexScreener real untuk posisi open.
+- Preset: DEFAULT / SAFE / AGRESIF di Strategy & Rules (ganti butuh engine
+  STOPPED; tiap aktivasi berversion + hash, trade menyimpan config hash).
+
 - Public Solana RPC is heavily rate-limited (429). Set `SOLANA_RPC_URL` to a
   Helius (or compatible) endpoint before `npm start` for full on-chain
   enrichment (authorities, holder concentration). Without it, unknown fields

@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import crypto from 'node:crypto';
-import { db, currentConfig, getDefaultState, persistState, logEngine } from '../db.js';
-import { serviceHealth, refreshMarketCache, discoverTokens, getJupiterQuote, lastDiscovery } from '../services/market.js';
+import { db, currentConfig, getDefaultState, persistState, logEngine, kvGet } from '../db.js';
+import { serviceHealth, refreshMarketCache, discoverTokens, getJupiterQuote, getLivePrice, lastDiscovery } from '../services/market.js';
+import { getFx } from '../services/fx.js';
+import { activatePreset, listPresets } from '../services/presets.js';
 import { startEngine, stopEngine, requestModeSwitch, confirmModeSwitch, engageKill, releaseKill, preflight } from '../services/engine.js';
 import { runScanCycle, computeKpis, equityCurve, vaultStatus, sweepVault } from '../services/ledger.js';
 import { evaluateSecurity } from '../engines/security.js';
@@ -206,5 +208,50 @@ r.get('/config', (req, res) => res.json(currentConfig()));
 
 // ---- security ad-hoc check (§15) ----
 r.post('/security/check', (req, res) => res.json(evaluateSecurity(req.body || {})));
+
+// ---- FX: real USD/IDR for dual-currency display ----
+r.get('/fx', async (req, res) => res.json(await getFx()));
+
+// ---- live PnL for open positions (real-time quotes, 5s server cache) ----
+let pnlCache = { ts: 0, data: null };
+r.get('/pnl/live', async (req, res) => {
+  if (Date.now() - pnlCache.ts < 5000 && pnlCache.data) return res.json(pnlCache.data);
+  const opens = db.prepare("SELECT * FROM trades WHERE state='OPEN' OR state='EMERGENCY_EXIT'").all();
+  let rate = 16500;
+  try { rate = kvGet('fx', null)?.usdIdr || 16500; } catch {}
+  const positions = await Promise.all(opens.map(async (t) => {
+    try {
+      const live = await getLivePrice(t.mint);
+      const grossRp = (live - t.entry_price) * t.qty * rate;
+      return {
+        id: t.id, symbol: t.symbol, mint: t.mint, mode: t.mode,
+        entry_price: t.entry_price, live_price: live, qty: t.qty,
+        unrealized: Math.round(grossRp),
+        pnl_pct: t.entry_price > 0 ? +(((live - t.entry_price) / t.entry_price) * 100).toFixed(2) : 0,
+        entry_ts: t.entry_ts, live: true
+      };
+    } catch {
+      return {
+        id: t.id, symbol: t.symbol, mint: t.mint, mode: t.mode,
+        entry_price: t.entry_price, live_price: null, qty: t.qty,
+        unrealized: 0, pnl_pct: 0, entry_ts: t.entry_ts, live: false
+      };
+    }
+  }));
+  const total = positions.reduce((a, p) => a + p.unrealized, 0);
+  pnlCache = { ts: Date.now(), data: { positions, total_unrealized: Math.round(total), count: positions.length, ts: Date.now() } };
+  res.json(pnlCache.data);
+});
+
+// ---- presets: default / safe / agresif ----
+r.get('/configs', (req, res) => {
+  const cur = currentConfig();
+  res.json({ presets: listPresets(cur.hash), active: cur });
+});
+r.post('/config/preset', (req, res) => {
+  const out = activatePreset(req.body?.preset, S);
+  if (out.ok) save();
+  res.status(out.ok ? 200 : 409).json(out);
+});
 
 export default r;

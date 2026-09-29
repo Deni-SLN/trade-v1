@@ -184,6 +184,14 @@ async function dexPairs(mint) {
   return pairs[0];
 }
 
+// Live price for an open position (DexScreener quote side). Throws on failure.
+export async function getLivePrice(mint) {
+  const pair = await dexPairs(mint);
+  const px = Number(pair?.priceUsd || 0);
+  if (!px) throw new Error('no live price');
+  return px;
+}
+
 export async function refreshMarketCache() {
   try {
     const j = await getJSON(DEX + 'latest/dex/tokens/' + SOL_MINT, 8000);

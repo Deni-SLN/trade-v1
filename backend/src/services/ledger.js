@@ -1,6 +1,6 @@
 // Ledger, metrics (§32), vault (§28), shadow (§24), scan loop.
 import crypto from 'node:crypto';
-import { db, currentConfig, logEngine } from '../db.js';
+import { db, currentConfig, logEngine, kvGet, kvSet } from '../db.js';
 import { evaluateSecurity } from '../engines/security.js';
 import { evaluateStrategy } from '../engines/strategy.js';
 import { evaluateRisk } from '../engines/risk.js';
@@ -8,6 +8,12 @@ import { adapterFor } from '../engines/execution.js';
 import { discoverTokens, getJupiterQuote, verifySellRoute, lastDiscovery } from './market.js';
 
 const SOL_MINT = 'So11111111111111111111111111111111111111112';
+
+// Ledger bookkeeps in IDR (Rp). Token prices/quotes are USD — convert at
+// trade boundaries with today's real rate so sizing is dimensionally correct.
+function fxRate() {
+  try { return kvGet('fx', null)?.usdIdr || 16500; } catch { return 16500; }
+}
 
 export async function runScanCycle(state) {
   const cfg = currentConfig();
@@ -63,11 +69,11 @@ export async function runScanCycle(state) {
         if (!quote.ok && state.mode.current === 'PAPER') {
           // paper still simulates fill from snapshot price when quote unavailable (flagged)
         }
-        const qty = risk.positionSize / Math.max(1e-9, t.price);
+        const qty = (risk.positionSize / fxRate()) / Math.max(1e-12, t.price);
         const res = await adapter.submit({ decisionId, mint: t.mint, side: 'BUY', qty, quotedPrice: t.price });
         const tradeId = crypto.randomUUID();
         db.prepare(`INSERT INTO trades (id,mint,symbol,mode,entry_ts,entry_price,qty,fees,slippage_bps,config_hash,state)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(tradeId, t.mint, t.symbol, state.mode.current, Date.now(), res.fillPrice, qty, res.fee, res.slippageBps, cfg.hash, 'OPEN');
+          VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(tradeId, t.mint, t.symbol, state.mode.current, Date.now(), res.fillPrice, qty, Math.round(res.fee * fxRate()), res.slippageBps, cfg.hash, 'OPEN');
         state.paper.cash -= risk.positionSize;
         entries++;
       } catch (e) {
@@ -85,9 +91,10 @@ function tryCloseOne(state) {
   const open = db.prepare("SELECT * FROM trades WHERE state='OPEN' ORDER BY entry_ts LIMIT 1").get();
   if (!open) return;
   if (Math.random() < 0.35) {
+    const k = fxRate();
     const drift = (Math.random() * 0.5 - 0.18);
     const exitPrice = open.entry_price * (1 + drift);
-    const gross = (exitPrice - open.entry_price) * open.qty;
+    const gross = (exitPrice - open.entry_price) * open.qty * k;
     const fees = (open.fees ?? 0) + Math.abs(gross) * 0.002;
     const net = gross - fees;
     const reasons = ['TP1', 'TRAIL', 'STOP', 'TIME', 'MAX_HOLD'];
@@ -95,7 +102,7 @@ function tryCloseOne(state) {
     db.prepare(`UPDATE trades SET exit_ts=?,exit_price=?,pnl_gross=?,pnl_net=?,fees=?,exit_reason=?,state='CLOSED',
       mae=?,mfe=?,hold_secs=? WHERE id=?`).run(Date.now(), exitPrice, gross, net, fees, exitReason,
       -Math.abs(drift) * 50, Math.abs(drift) * 100, 600 + Math.round(Math.random() * 9000), open.id);
-    state.paper.cash += open.qty * exitPrice;
+    state.paper.cash += open.qty * exitPrice * k;
     state.paper.equity = state.paper.cash + openPositionsValue();
     state.risk.dailyPnl += net;
     if (net < 0) state.risk.consecutiveLosses += 1; else state.risk.consecutiveLosses = 0;
@@ -154,7 +161,6 @@ export function equityCurve(paper) {
 }
 
 // ---- vault (§28): HWM ratchets only via sweep, never auto-follows equity ----
-import { kvGet, kvSet } from '../db.js';
 export function vaultStatus(paper) {
   let hwm = kvGet('vault_hwm', null);
   if (hwm == null) { hwm = paper.initialCapital; kvSet('vault_hwm', hwm); }

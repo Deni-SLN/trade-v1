@@ -19,6 +19,34 @@ const fmtUsd = (n) => {
   return '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 };
 const fmtTs = (ts) => new Date(ts).toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit' });
+
+// ---- dual currency: $ primary, small Rp at today's real rate (or swapped) ----
+const FxCtx = React.createContext({ rate: 16500, date: null, stale: true, mode: '$', setMode: () => {} });
+const useFx = () => React.useContext(FxCtx);
+const fmtUSD = (idr, rate) => {
+  const u = (idr ?? 0) / (rate || 16500);
+  const a = Math.abs(u);
+  if (a >= 1000) return '$' + u.toLocaleString('en-US', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  if (a >= 1) return '$' + u.toFixed(2);
+  return '$' + u.toPrecision(3);
+};
+// Big primary + small secondary. Token prices (already USD) keep using fmtUsd.
+function Money({ idr, color }) {
+  const { rate, mode } = useFx();
+  const us = fmtUSD(idr, rate);
+  const rp = (idr == null ? '—' : 'Rp' + Math.round(idr).toLocaleString('id-ID'));
+  const big = mode === '$' ? us : rp;
+  const small = mode === '$' ? rp : us;
+  return <span style={color ? { color } : undefined}><span className="mono" style={{ fontWeight: 700 }}>{big}</span>{' '}<span className="mono" style={{ fontSize: '0.74em', color: '#8b98ad' }}>{small}</span></span>;
+}
+// Two-line table cell: $ over tiny Rp (or swapped).
+function CellMoney({ idr }) {
+  const { rate, mode } = useFx();
+  const us = fmtUSD(idr, rate);
+  const rp = (idr == null ? '—' : 'Rp' + Math.round(idr).toLocaleString('id-ID'));
+  const neg = (idr ?? 0) < 0;
+  return <span><span className={neg ? 'down' : 'up'}>{mode === '$' ? us : rp}</span><br /><span style={{ fontSize: '0.82em', color: '#5b6b82' }}>{mode === '$' ? rp : us}</span></span>;
+}
 const ago = (ts) => {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
   if (s < 60) return s + 'd lalu';
@@ -43,6 +71,7 @@ function smoothPath(pts) {
 // smooth curve riding profit, gradient fill, current-value callout,
 // HWM dashed line, drawdown tint, per-trade PnL bars along the bottom.
 function EquityChart({ data, bars, height = 230 }) {
+  const { rate: eqRate } = useFx();
   if (!data || data.length < 2) return <div className="mono" style={{ color: '#8b98ad', padding: '28px 0', textAlign: 'center' }}>belum ada histori — jalankan ENGINE + SCAN, kurva naik-turun mengikuti profit</div>;
   const W = 760, H = height, L = 68, R = 92, T = 14, XB = 22, HB = 34;
   const plotB = H - XB - HB;
@@ -105,7 +134,7 @@ function EquityChart({ data, bars, height = 230 }) {
         {list.map((b, i) => {
           const h = Math.max(1.5, (Math.abs(b.pnl || 0) / maxAbs) * ((stripB - stripT) / 2 - 1));
           const gain = (b.pnl || 0) >= 0;
-          return <rect key={i} x={TX(b.ts) - 2.2} y={gain ? stripM - h : stripM} width="4.4" height={h} rx="1" fill={gain ? '#22c55e' : '#ef4444'} opacity="0.85"><title>{(gain ? '+' : '') + fmtRp(b.pnl)} · {new Date(b.ts).toLocaleString('id-ID')}</title></rect>;
+          return <rect key={i} x={TX(b.ts) - 2.2} y={gain ? stripM - h : stripM} width="4.4" height={h} rx="1" fill={gain ? '#22c55e' : '#ef4444'} opacity="0.85"><title>{(gain ? '+' : '') + fmtUSD(b.pnl, eqRate)} · {new Date(b.ts).toLocaleString('id-ID')}</title></rect>;
         })}
         {xTicks.map((i, k) => (
           <text key={k} x={X(i)} y={H - 7} textAnchor="middle" fontSize="10" fill="#5b6b82" fontFamily="JetBrains Mono, monospace">{fmtTs(data[i].ts)}</text>
@@ -160,6 +189,8 @@ function Scatter({ data, x, y, xlabel = 'X', ylabel = 'Y' }) {
 }
 
 function FrictionBar({ f }) {
+  const { rate, mode } = useFx();
+  const dual = (v) => mode === '$' ? `${fmtUSD(v, rate)} · Rp${Math.round(v).toLocaleString('id-ID')}` : `Rp${Math.round(v).toLocaleString('id-ID')} · ${fmtUSD(v, rate)}`;
   if (!f || (f.gross ?? 0) <= 0) return null;
   const segs = [
     ['Net', f.net, '#22c55e'], ['DEX', f.dexFee, '#f97316'], ['Priority', f.priorityFee, '#eab308'],
@@ -169,10 +200,10 @@ function FrictionBar({ f }) {
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: 'flex', height: 16, borderRadius: 4, overflow: 'hidden', border: '1px solid #1b2433' }}>
-        {segs.map(([k, v, c]) => <div key={k} title={`${k}: ${fmtRp(v)}`} style={{ width: (v / tot * 100) + '%', background: c }} />)}
+        {segs.map(([k, v, c]) => <div key={k} title={`${k}: ${dual(v)}`} style={{ width: (v / tot * 100) + '%', background: c }} />)}
       </div>
       <div className="mono" style={{ display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 10.5, color: '#8b98ad', marginTop: 5 }}>
-        {segs.map(([k, v, c]) => <span key={k}><span style={{ display: 'inline-block', width: 8, height: 8, background: c, borderRadius: 2 }} /> {k} {fmtRp(v)}</span>)}
+        {segs.map(([k, v, c]) => <span key={k} title={dual(v)}><span style={{ display: 'inline-block', width: 8, height: 8, background: c, borderRadius: 2 }} /> {k} {mode === '$' ? fmtUSD(v, rate) : 'Rp' + Math.round(v).toLocaleString('id-ID')}</span>)}
       </div>
     </div>
   );
@@ -187,6 +218,30 @@ function usePoll(fn, ms, deps = []) {
 
 
 
+function LivePnlChip() {
+  const [pnl] = usePoll(() => api('/pnl/live'), 5000);
+  const { rate, mode } = useFx();
+  if (!pnl || !pnl.count) return <span style={{ color: '#5b6b82' }}>PNL LIVE: flat (0 open)</span>;
+  const v = pnl.total_unrealized ?? 0;
+  const neg = v < 0;
+  return (
+    <span title="Unrealized PnL posisi open, quote real-time per 5 detik">
+      PNL LIVE <b className={neg ? 'down' : 'up'}>{neg ? '−' : '+'}{mode === '$' ? fmtUSD(Math.abs(v), rate) : 'Rp' + Math.abs(Math.round(v)).toLocaleString('id-ID')}</b>{' '}
+      <span style={{ color: '#5b6b82' }}>({pnl.count} open{!pnl.positions.every(p => p.live) ? ' · quote pending' : ''})</span>
+    </span>
+  );
+}
+
+function FxChip() {
+  const { rate, date, stale, mode, setMode } = useFx();
+  return (
+    <span title={date ? `Kurs ${date} — tap $/Rp untuk ganti primer` : 'Kurs loading'}>
+      <button className="mode-btn paper" style={{ padding: '2px 8px', fontSize: 10 }} onClick={() => setMode(mode === '$' ? 'Rp' : '$')}>{mode === '$' ? '$ ⇄ Rp' : 'Rp ⇄ $'}</button>{' '}
+      $1 = Rp{Math.round(rate).toLocaleString('id-ID')}{stale ? '*' : ''}
+    </span>
+  );
+}
+
 export default function App() {
   const [nav, setNav] = useState('Overview');
   const [drawer, setDrawer] = useState(false);
@@ -195,6 +250,16 @@ export default function App() {
   const [showLiveGate, setShowLiveGate] = useState(null);
   const [showStop, setShowStop] = useState(false);
   const [msg, setMsg] = useState('');
+  const [fx, setFx] = useState({ rate: 16500, date: null, source: 'loading…', stale: true });
+  const [fxMode, setFxMode] = useState(() => { try { return localStorage.getItem('sofia-fx-mode') || '$'; } catch { return '$'; } });
+  useEffect(() => {
+    const load = async () => { try { setFx(await api('/fx')); } catch {} };
+    load();
+    const t = setInterval(load, 6 * 3600e3);
+    return () => clearInterval(t);
+  }, []);
+  const changeFxMode = (m) => { setFxMode(m); try { localStorage.setItem('sofia-fx-mode', m); } catch {} };
+  const fxCtx = { ...fx, mode: fxMode, setMode: changeFxMode };
 
   const loadStatus = useCallback(async () => {
     try {
@@ -247,6 +312,7 @@ export default function App() {
   const kill = async () => { await api('/kill', { method: 'POST', body: JSON.stringify({ reason: 'manual header' }) }); loadStatus(); };
 
   return (
+    <FxCtx.Provider value={fxCtx}>
     <div className="app">
       <header>
         <button className="hamburger" onClick={() => setDrawer(true)} aria-label="Menu">☰</button>
@@ -285,6 +351,8 @@ export default function App() {
             <span><span className="dot" style={{ background: '#22c55e' }} />Market <b>{status?.services?.market}</b></span>
             <span>Open <b>{status?.openPositions ?? 0}</b></span>
             <span>Risk <b>{status?.circuit}</b></span>
+            <LivePnlChip />
+            <FxChip />
             {msg && <span style={{ color: '#facc15' }}>{msg}</span>}
           </div>
         </div>
@@ -350,18 +418,23 @@ export default function App() {
         </div>
       )}
     </div>
+    </FxCtx.Provider>
   );
 }
 
 function KpiCards({ kpi }) {
-  const items = [
-    ['Total Equity', fmtRp(kpi?.equity), '#fff'], ['Net PnL', (kpi?.netPnl >= 0 ? '+' : '') + fmtRp(kpi?.netPnl), kpi?.netPnl >= 0 ? '#4ade80' : '#f87171'],
-    ['ROI', (kpi?.roi >= 0 ? '+' : '') + (kpi?.roi ?? 0) + '%', kpi?.roi >= 0 ? '#4ade80' : '#f87171'],
-    ['Win Rate', (kpi?.winRate ?? 0) + '%', '#67e8f9'], ['Profit Factor', kpi?.profitFactor ?? 0, '#fff'],
-    ['Max Drawdown', (kpi?.maxDrawdown ?? 0) + '%', '#f87171'], ['Total Trades', kpi?.totalTrades ?? 0, '#fff'],
-    ['Expectancy', '+' + (kpi?.expectancy ?? 0) + 'R', '#4ade80']
+  const k = kpi || {};
+  const cards = [
+    ['Total Equity', <Money idr={k.equity} />, '#fff'],
+    ['Net PnL', <Money idr={k.netPnl} />, (k.netPnl ?? 0) >= 0 ? '#4ade80' : '#f87171'],
+    ['ROI', ((k.roi ?? 0) >= 0 ? '+' : '') + (k.roi ?? 0) + '%', (k.roi ?? 0) >= 0 ? '#4ade80' : '#f87171'],
+    ['Win Rate', (k.winRate ?? 0) + '%', '#67e8f9'],
+    ['Profit Factor', k.profitFactor ?? 0, '#fff'],
+    ['Max Drawdown', (k.maxDrawdown ?? 0) + '%', '#f87171'],
+    ['Total Trades', k.totalTrades ?? 0, '#fff'],
+    ['Expectancy', '+' + (k.expectancy ?? 0) + 'R', '#4ade80']
   ];
-  return <div className="grid-kpi">{items.map(([k, v, c]) => <div className="card" key={k}><h4>{k.toUpperCase()}</h4><div className="v" style={{ color: c }}>{v}</div></div>)}</div>;
+  return <div className="grid-kpi">{cards.map(([t, v, c]) => <div className="card" key={t}><h4>{t.toUpperCase()}</h4><div className="v" style={{ color: c }}>{v}</div></div>)}</div>;
 }
 
 function Overview({ kpi, status, reload }) {
@@ -410,6 +483,7 @@ function Performance() {
   const [friction] = usePoll(() => api('/analytics/friction'), 15000);
   const [hold] = usePoll(() => api('/analytics/hold'), 15000);
   const [mc, setMc] = useState(null);
+  const { rate: mcRate } = useFx();
   const [tradesPf] = usePoll(() => api('/trades?limit=200'), 15000);
   const barsPf = (tradesPf || []).filter(t => t.state === 'CLOSED' && t.exit_ts).map(t => ({ ts: t.exit_ts, pnl: t.pnl_net }));
   return (
@@ -418,11 +492,11 @@ function Performance() {
       <div className="cols2">
         <div className="panel"><h3>ROLLING PERFORMANCE (50/100/200)</h3>
           <table><thead><tr><th>WIN</th><th>N</th><th>WIN%</th><th>NET</th></tr></thead><tbody>
-            {(rolling?.windows || []).map(w => <tr key={w.window}><td>{w.window}</td><td>{w.n}</td><td>{w.winRate}%</td><td>{fmtRp(w.net)}</td></tr>)}
+            {(rolling?.windows || []).map(w => <tr key={w.window}><td>{w.window}</td><td>{w.n}</td><td>{w.winRate}%</td><td><CellMoney idr={w.net} /></td></tr>)}
           </tbody></table></div>
         <div className="panel"><h3>EXIT ATTRIBUTION</h3>
           <table><thead><tr><th>REASON</th><th>N</th><th>PNL</th></tr></thead><tbody>
-            {(exits || []).map(e => <tr key={e.exit_reason}><td>{e.exit_reason}</td><td>{e.n}</td><td className={e.pnl >= 0 ? 'up' : 'down'}>{fmtRp(e.pnl)}</td></tr>)}
+            {(exits || []).map(e => <tr key={e.exit_reason}><td>{e.exit_reason}</td><td>{e.n}</td><td><CellMoney idr={e.pnl} /></td></tr>)}
           </tbody></table></div>
       </div>
       <div className="cols2">
@@ -434,13 +508,13 @@ function Performance() {
         <div className="panel"><h3>COST FRICTION: GROSS → NET</h3>
           {friction && <><FrictionBar f={friction} /><table><tbody>
             {[['Gross PnL', friction.gross], ['− DEX Fee', -friction.dexFee], ['− Priority Fee', -friction.priorityFee], ['− Jupiter Route', -friction.jupiterRoute], ['− Slippage', -friction.slippage], ['− MEV', -friction.mev], ['= Net PnL', friction.net]].map(([k, v]) => (
-              <tr key={k}><td>{k}</td><td className={v >= 0 ? 'up' : 'down'}>{fmtRp(v)}</td></tr>))}
+              <tr key={k}><td>{k}</td><td><CellMoney idr={v} /></td></tr>))}
           </tbody></table></>}</div>
         <div className="panel"><h3>MONTE CARLO (SCENARIO ONLY)</h3>
           <div style={{ display: 'flex', gap: 6 }}>
             {[1000, 5000, 10000].map(s => <button key={s} className="btn" onClick={() => api('/analytics/montecarlo?sims=' + s).then(setMc)}>{s.toLocaleString()}</button>)}
           </div>
-          {mc && <div className="mono" style={{ marginTop: 8, fontSize: 12 }}>median {fmtRp(mc.median)} · p5 {fmtRp(mc.p5)} · p95 {fmtRp(mc.p95)} · P(profit) {mc.probProfit}%<br /><span style={{ color: '#8b98ad' }}>{mc.note}</span></div>}
+          {mc && <div className="mono" style={{ marginTop: 8, fontSize: 12 }}>median {fmtUSD(mc.median, mcRate)} <span style={{ color: '#5b6b82' }}>Rp{Math.round(mc.median).toLocaleString('id-ID')}</span> · p5 {fmtUSD(mc.p5, mcRate)} · p95 {fmtUSD(mc.p95, mcRate)} · P(profit) {mc.probProfit}%<br /><span style={{ color: '#8b98ad' }}>{mc.note}</span></div>}
         </div>
       </div>
     </>
@@ -500,8 +574,8 @@ function Trades() {
         <div className="panel"><h3>TRADES — STATE: OPEN / CLOSED / EMERGENCY_EXIT</h3>
           <table><thead><tr><th>SYM</th><th>MODE</th><th>ENTRY</th><th>EXIT</th><th>PNL NET</th><th>EXIT REASON</th><th>STATE</th><th>CFG</th></tr></thead><tbody>
             {(trades || []).map(t => <tr key={t.id}><td>{t.symbol}</td><td><span className={`tag ${t.mode === 'LIVE' ? 'live' : 'paper'}`}>{t.mode}</span></td>
-              <td>{t.entry_price?.toFixed(6)}</td><td>{t.exit_price?.toFixed(6) ?? '—'}</td>
-              <td className={(t.pnl_net ?? 0) >= 0 ? 'up' : 'down'}>{t.pnl_net == null ? 'OPEN' : fmtRp(t.pnl_net)}</td>
+              <td>{t.entry_price != null ? fmtUsd(t.entry_price) : '—'}</td><td>{t.exit_price != null ? fmtUsd(t.exit_price) : '—'}</td>
+              <td>{t.pnl_net == null ? 'OPEN' : <CellMoney idr={t.pnl_net} />}</td>
               <td>{t.exit_reason ?? '—'}</td><td>{t.state}</td><td>{(t.config_hash || '').slice(0, 8)}</td></tr>)}
           </tbody></table></div>
       ) : (
@@ -548,10 +622,34 @@ function Shadow() {
 
 function Strategy() {
   const [cfg] = usePoll(() => api('/config'), 30000);
+  const [presets, reloadPresets] = usePoll(() => api('/configs'), 10000);
+  const [presetMsg, setPresetMsg] = useState('');
   const [out, setOut] = useState(null);
   const [form, setForm] = useState({ liquidityUsd: 60000, top10Pct: 20, devPct: 2, sellRoute: 'OK', mintAuthority: null, lpBurned: true });
   return (
     <>
+      <div className="panel"><h3>MODE STRATEGI — DEFAULT / SAFE / AGRESIF</h3>
+        <div className="mono" style={{ fontSize: 11, color: '#8b98ad', marginBottom: 8 }}>Ganti preset butuh ENGINE STOPPED. Setiap aktivasi tercatat + trade menyimpan config hash-nya.</div>
+        <div className="cols3">
+          {(presets?.presets || []).map(p => (
+            <div className="card" key={p.name} style={p.active ? { borderColor: '#22d3ee' } : undefined}>
+              <h4 style={{ color: p.name === 'safe' ? '#4ade80' : p.name === 'agresif' ? '#f87171' : '#67e8f9' }}>{p.label} {p.active ? '● AKTIF' : ''}</h4>
+              <div style={{ fontSize: 11, color: '#8b98ad', marginBottom: 6 }}>{p.desc}</div>
+              <div className="mono" style={{ fontSize: 10.5 }}>
+                threshold {p.params.entryScoreThreshold} · liq ${p.params.minLiquidityUsd.toLocaleString()} · vol ${p.params.minVolume24hUsd.toLocaleString()}<br />
+                size {p.params.positionSizePct}% · max {p.params.maxPositions} pos · TP {p.params.tpPct}% / SL {p.params.slPct}%<br />
+                daily-loss {p.params.dailyLossLimitPct}% · maxDD {p.params.maxDrawdownPct}%
+              </div>
+              <button className="btn" style={{ marginTop: 8, width: '100%' }} disabled={p.active} onClick={async () => {
+                const r = await api('/config/preset', { method: 'POST', body: JSON.stringify({ preset: p.name }) });
+                setPresetMsg(r.ok ? `${p.label} aktif (${r.hash})` : 'Gagal: ' + (r.reason || '?') + (r.hint ? ' — ' + r.hint : ''));
+                reloadPresets();
+              }}>{p.active ? 'AKTIF' : 'AKTIFKAN ' + p.label}</button>
+            </div>
+          ))}
+        </div>
+        {presetMsg && <div className="mono" style={{ fontSize: 11, color: '#facc15', marginTop: 6 }}>{presetMsg}</div>}
+      </div>
       <div className="panel"><h3>STRATEGY & RULES — sofia-momentum-v1 · CFG {cfg?.hash}</h3>
         <pre className="mono" style={{ fontSize: 11, background: '#080d16', padding: 10, borderRadius: 4, overflowX: 'auto' }}>{JSON.stringify(cfg?.parameters, null, 1)}</pre>
         <div className="mono" style={{ fontSize: 11, color: '#8b98ad' }}>Every trade stores config_hash (§31). AI/LLM can never override hard security REJECT (§3).</div></div>
@@ -589,6 +687,9 @@ function ScanButton({ status, reload }) {
 function CoinFlow() {
   const [trades] = usePoll(() => api('/trades?limit=100'), 8000);
   const [fills] = usePoll(() => api('/fills'), 10000);
+  const [live] = usePoll(() => api('/pnl/live'), 5000);
+  const { rate, mode } = useFx();
+  const liveById = Object.fromEntries((live?.positions || []).map(p => [p.id, p]));
   const open = (trades || []).filter(t => t.state === 'OPEN' || t.state === 'EMERGENCY_EXIT');
   const closed = (trades || []).filter(t => t.state === 'CLOSED').slice(0, 8);
   const coin = (s) => (
@@ -600,14 +701,18 @@ function CoinFlow() {
         <div>
           <div className="mono" style={{ fontSize: 11, color: '#4ade80', fontWeight: 700, marginBottom: 6 }}>● DIBELI — SEDANG DIPEGANG ({open.length})</div>
           {open.length === 0 && <div className="mono" style={{ fontSize: 11, color: '#5b6b82' }}>belum ada posisi — start engine lalu scan</div>}
-          {open.map(t => (
-            <div key={t.id} className="mono" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #121a28', fontSize: 11.5 }}>
-              {coin(t.symbol)}
-              <span title={t.mint} style={{ color: '#5b6b82' }}>{String(t.mint).slice(0, 6)}…{String(t.mint).slice(-4)}</span>
-              <span style={{ marginLeft: 'auto' }}>@ {fmtUsd(t.entry_price)}</span>
-              <span style={{ color: '#8b98ad' }}>{ago(t.entry_ts)}</span>
-            </div>
-          ))}
+          {open.map(t => {
+            const L = liveById[t.id];
+            const up = (L ? L.unrealized : 0) >= 0;
+            return (
+              <div key={t.id} className="mono" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #121a28', fontSize: 11.5 }}>
+                {coin(t.symbol)}
+                <span style={{ color: '#5b6b82' }}>{fmtUsd(t.entry_price)} → <b style={{ color: '#fff' }}>{L?.live ? fmtUsd(L.live_price) : '…'}</b></span>
+                <span className={up ? 'up' : 'down'} style={{ fontWeight: 700 }}>{L ? <Money idr={L.unrealized} /> : '…'} <span style={{ fontSize: '0.85em' }}>{L ? `(${L.pnl_pct >= 0 ? '+' : ''}${L.pnl_pct}%)` : ''}</span></span>
+                <span style={{ marginLeft: 'auto', color: '#8b98ad' }}>{L?.live ? 'LIVE' : 'quote…'} · {ago(t.entry_ts)}</span>
+              </div>
+            );
+          })}
         </div>
         <div>
           <div className="mono" style={{ fontSize: 11, color: '#f87171', fontWeight: 700, marginBottom: 6 }}>● DIJUAL — BARU DITUTUP</div>
@@ -616,14 +721,14 @@ function CoinFlow() {
             <div key={t.id} className="mono" style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '5px 0', borderBottom: '1px solid #121a28', fontSize: 11.5 }}>
               {coin(t.symbol)}
               <span style={{ color: '#5b6b82' }}>{fmtUsd(t.entry_price)} → {fmtUsd(t.exit_price)}</span>
-              <span className={(t.pnl_net ?? 0) >= 0 ? 'up' : 'down'} style={{ fontWeight: 700 }}>{(t.pnl_net >= 0 ? '+' : '') + fmtRp(t.pnl_net)}</span>
+              <span style={{ fontWeight: 700 }}><Money idr={t.pnl_net} color={(t.pnl_net ?? 0) >= 0 ? '#4ade80' : '#f87171'} /></span>
               <span style={{ marginLeft: 'auto', color: '#8b98ad' }}>{t.exit_reason} · {ago(t.exit_ts)}</span>
             </div>
           ))}
         </div>
       </div>
       <div className="mono" style={{ fontSize: 11, color: '#8b98ad', marginTop: 8 }}>
-        FILL TERAKHIR: {(fills || []).slice(0, 4).map(f => `${f.symbol || '?'} @ ${fmtUsd(f.price)} (fee ${fmtRp(f.fee)} · slip ${f.slippage_bps}bps${f.simulated ? ' · sim' : ''})`).join('   |   ') || '—'}
+        FILL TERAKHIR: {(fills || []).slice(0, 4).map(f => `${f.symbol || '?'} @ ${fmtUsd(f.price)} (fee ${mode === '$' ? fmtUSD(f.fee, rate) : 'Rp' + Math.round(f.fee ?? 0).toLocaleString('id-ID')} · slip ${f.slippage_bps}bps${f.simulated ? ' · sim' : ''})`).join('   |   ') || '—'}
       </div>
     </div>
   );
@@ -631,8 +736,10 @@ function CoinFlow() {
 
 function RiskInline() {
   const [risk] = usePoll(() => api('/risk'), 8000);
+  const { rate: riRate, mode: riMode } = useFx();
+  const ri = (v) => riMode === '$' ? fmtUSD(v, riRate) : 'Rp' + Math.round(v ?? 0).toLocaleString('id-ID');
   if (!risk) return null;
-  return <div className="mono" style={{ fontSize: 12 }}>Equity {fmtRp(risk.equity)} · Daily {fmtRp(risk.dailyPnl)} (lim {risk.dailyLossLimitPct}%) · DD {risk.drawdown}% · Open {risk.openPositions}/{risk.maxPositions} · Risk {fmtRp(risk.capitalAtRisk)} · ConsecLoss {risk.consecutiveLosses} · <span className={`tag ${risk.status === 'NORMAL' ? 'normal' : 'warning'}`}>{risk.status}</span></div>;
+  return <div className="mono" style={{ fontSize: 12 }}>Equity {ri(risk.equity)} · Daily {ri(risk.dailyPnl)} (lim {risk.dailyLossLimitPct}%) · DD {risk.drawdown}% · Open {risk.openPositions}/{risk.maxPositions} · Risk {ri(risk.capitalAtRisk)} · ConsecLoss {risk.consecutiveLosses} · <span className={`tag ${risk.status === 'NORMAL' ? 'normal' : 'warning'}`}>{risk.status}</span></div>;
 }
 
 function Risk({ reload }) {
@@ -640,7 +747,7 @@ function Risk({ reload }) {
   return (
     <div className="panel"><h3>RISK & LIMITS — MANDATORY GATE (§17)</h3>
       {risk && <div className="cols3">
-        {[['Equity', fmtRp(risk.equity)], ['Daily PnL', fmtRp(risk.dailyPnl)], ['Drawdown', risk.drawdown + '%'], ['Open', `${risk.openPositions}/${risk.maxPositions}`], ['Capital at Risk', fmtRp(risk.capitalAtRisk)], ['Consec Losses', risk.consecutiveLosses]].map(([k, v]) => (
+        {[['Equity', <Money idr={risk.equity} />], ['Daily PnL', <Money idr={risk.dailyPnl} color={risk.dailyPnl >= 0 ? '#4ade80' : '#f87171'} />], ['Drawdown', risk.drawdown + '%'], ['Open', `${risk.openPositions}/${risk.maxPositions}`], ['Capital at Risk', <Money idr={risk.capitalAtRisk} />], ['Consec Losses', risk.consecutiveLosses]].map(([k, v]) => (
           <div className="card" key={k}><h4>{k.toUpperCase()}</h4><div className="v">{v}</div></div>))}
       </div>}
       <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
@@ -653,10 +760,12 @@ function Risk({ reload }) {
 
 function Wallet() {
   const [w] = usePoll(() => api('/wallet'), 8000);
+  const [live] = usePoll(() => api('/pnl/live'), 5000);
   return (
     <div className="cols2">
       <div className="panel"><h3>PAPER WALLET — VIRTUAL CAPITAL</h3>
-        {w && Object.entries(w.paper).map(([k, v]) => <div key={k} className="mono" style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#8b98ad' }}>{k}</span><b>{typeof v === 'number' ? fmtRp(v) : v}</b></div>)}
+        {w && Object.entries(w.paper).map(([k, v]) => <div key={k} className="mono" style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}><span style={{ color: '#8b98ad' }}>{k}</span><b>{typeof v === 'number' ? <Money idr={v} /> : v}</b></div>)}
+        <div className="mono" style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderTop: '1px solid #1b2433', marginTop: 4 }}><span style={{ color: '#4ade80' }}>unrealized (live)</span><b><Money idr={live?.total_unrealized ?? 0} color={(live?.total_unrealized ?? 0) >= 0 ? '#4ade80' : '#f87171'} /></b></div>
       </div>
       <div className="panel"><h3>LIVE WALLET — REAL (KEY NEVER SHOWN)</h3>
         {w && <><div className="mono">addr: {w.live.address} · {w.live.connected ? 'CONNECTED' : 'DISCONNECTED'}</div>
@@ -669,12 +778,13 @@ function Wallet() {
 
 function Vault() {
   const [v, refresh] = usePoll(() => api('/vault'), 8000);
+  const { rate } = useFx();
   return (
     <div className="panel"><h3>PROFIT VAULT — HWM SWEEP 50% (§28)</h3>
-      {v && <div className="mono">HWM {fmtRp(v.hwm)} · Equity {fmtRp(v.equity)} · Above {fmtRp(v.profitAbove)} · Eligible {fmtRp(v.eligible)} · Swept {fmtRp(v.sweptTotal)}</div>}
-      <button className="btn go" style={{ marginTop: 8 }} onClick={async () => { const r = await api('/vault/sweep', { method: 'POST', body: '{}' }); alert(r.ok ? `Swept ${fmtRp(r.swept)} (sim=${r.simulated})` : r.reason); refresh(); }}>SWEEP 50% ABOVE HWM</button>
+      {v && <div className="mono" style={{ fontSize: 12 }}>HWM <Money idr={v.hwm} /> · Equity <Money idr={v.equity} /> · Above <Money idr={v.profitAbove} /> · Eligible <Money idr={v.eligible} /> · Swept <Money idr={v.sweptTotal} /></div>}
+      <button className="btn go" style={{ marginTop: 8 }} onClick={async () => { const r = await api('/vault/sweep', { method: 'POST', body: '{}' }); alert(r.ok ? `Swept ${fmtUSD(r.swept, rate)} (sim=${r.simulated})` : r.reason); refresh(); }}>SWEEP 50% ABOVE HWM</button>
       <table style={{ marginTop: 8 }}><thead><tr><th>TS</th><th>SWEPT</th><th>MODE</th><th>SIM</th><th>DEST</th></tr></thead><tbody>
-        {(v?.sweeps || []).map(s => <tr key={s.id}><td>{new Date(s.ts).toLocaleString()}</td><td>{fmtRp(s.swept)}</td><td>{s.mode}</td><td>{s.simulated ? 'yes' : 'no'}</td><td>{s.dest}</td></tr>)}
+        {(v?.sweeps || []).map(s => <tr key={s.id}><td>{new Date(s.ts).toLocaleString()}</td><td><CellMoney idr={s.swept} /></td><td>{s.mode}</td><td>{s.simulated ? 'yes' : 'no'}</td><td>{s.dest}</td></tr>)}
       </tbody></table>
     </div>
   );
